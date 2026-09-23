@@ -13,12 +13,12 @@ The fastest route to a URL that resolves, which is what Meta validates.
 
 1. Push this repository to GitHub.
 2. Repository **Settings → Pages**.
-3. Source: **Deploy from a branch**, branch `main`, folder **`/site`**. Save.
+3. Source: **Deploy from a branch**, branch `main`, folder **`/ (root)`**. Save. GitHub Pages only offers root or `/docs`, so the pages are served under `/site/`.
 4. Wait a minute or two, then confirm both URLs load in a browser:
 
 ```
-https://<username>.github.io/<repo>/privacy.html
-https://<username>.github.io/<repo>/data-deletion.html
+https://<username>.github.io/<repo>/site/privacy.html
+https://<username>.github.io/<repo>/site/data-deletion.html
 ```
 
 Meta fetches the privacy policy URL and validates it resolves to a real page. A 404, a redirect

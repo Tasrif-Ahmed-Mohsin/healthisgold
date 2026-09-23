@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Local env and secrets — never commit API keys.
+.env
+.env.*
+!.env.example
+*.local
+
+# Local data stores (synthetic patient data still does not belong in git).
+*.sqlite
+*.sqlite-journal
+*.db
+data/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*

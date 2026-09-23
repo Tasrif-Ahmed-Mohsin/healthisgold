@@ -1,0 +1,23 @@
+{
+  "name": "healthcare-coordination",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A care-coordination layer for Bangladesh: channel-agnostic intake, deterministic safety kernel, human accountability, longitudinal patient record.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light dark;
+
+  --bg: #fbfaf7;
+  --surface: #ffffff;
+  --border: #e3e0d8;
+  --border-strong: #cfcbc0;
+  --text: #1c1b18;
+  --text-dim: #6b6862;
+
+  --green-bg: #eaf3de;
+  --green-fg: #3b6d11;
+  --yellow-bg: #faeeda;
+  --yellow-fg: #854f0b;
+  --red-bg: #fcebeb;
+  --red-fg: #a32d2d;
+  --black-bg: #ebe9e4;
+  --black-fg: #2c2c2a;
+
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171614;
+    --surface: #1f1e1b;
+    --border: #322f2a;
+    --border-strong: #474339;
+    --text: #f1efe8;
+    --text-dim: #9d9890;
+
+    --green-bg: #27500a;
+    --green-fg: #c0dd97;
+    --yellow-bg: #633806;
+    --yellow-fg: #fac775;
+    --red-bg: #791f1f;
+    --red-fg: #f7c1c1;
+    --black-bg: #3a3833;
+    --black-fg: #d3d1c7;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans Bengali', sans-serif;
+}
+
+.shell { max-width: 1080px; margin: 0 auto; padding: 1.5rem 1rem 5rem; }
+
+header.top {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+}
+header.top h1 { font-size: 1.25rem; font-weight: 500; margin: 0; }
+header.top .muted { color: var(--text-dim); font-size: .85rem; }
+
+button {
+  font: inherit; cursor: pointer;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: .4rem .8rem;
+}
+button:hover { border-color: var(--text-dim); }
+button.link { background: none; border: none; padding: 0; text-decoration: underline; }
+
+input[type='password'], input[type='text'] {
+  font: inherit; width: 100%;
+  padding: .55rem .7rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+}
+
+.gate { max-width: 26rem; margin: 15vh auto; }
+.gate p { color: var(--text-dim); font-size: .9rem; }
+.gate form { display: flex; flex-direction: column; gap: .75rem; margin-top: 1rem; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+  margin-bottom: .75rem;
+}
+
+.case-row { display: grid; grid-template-columns: 5.5rem 1fr auto; gap: 1rem; align-items: start; cursor: pointer; text-align: left; width: 100%; }
+.case-row:hover { border-color: var(--border-strong); }
+
+.badge {
+  display: inline-block; padding: .15rem .55rem; border-radius: 999px;
+  font-size: .75rem; font-weight: 500; letter-spacing: .02em;
+}
+.badge.GREEN  { background: var(--green-bg);  color: var(--green-fg); }
+.badge.YELLOW { background: var(--yellow-bg); color: var(--yellow-fg); }
+.badge.RED    { background: var(--red-bg);    color: var(--red-fg); }
+.badge.BLACK  { background: var(--black-bg);  color: var(--black-fg); }
+
+.symptoms { display: flex; flex-wrap: wrap; gap: .35rem; margin: .25rem 0 0; padding: 0; list-style: none; }
+.symptoms li {
+  font-size: .8rem; padding: .1rem .5rem;
+  border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim);
+}
+
+.meta { color: var(--text-dim); font-size: .82rem; }
+.right { text-align: right; }
+
+h2 { font-size: 1rem; font-weight: 500; margin: 1.5rem 0 .6rem; }
+h3 { font-size: .88rem; font-weight: 500; margin: 0 0 .35rem; color: var(--text-dim); }
+
+.rule { border-left: 3px solid var(--red-fg); padding-left: .8rem; margin-bottom: .8rem; }
+.rule .title { font-weight: 500; }
+.rule .detail { color: var(--text-dim); font-size: .88rem; }
+
+.timeline { list-style: none; padding: 0; margin: 0; }
+.timeline li { display: grid; grid-template-columns: 4.5rem 1fr; gap: .75rem; padding: .5rem 0; border-top: 1px solid var(--border); }
+.timeline li:first-child { border-top: none; }
+.timeline .when { color: var(--text-dim); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.timeline .what { font-size: .88rem; }
+.timeline .who { color: var(--text-dim); font-size: .76rem; }
+.timeline .said { margin: .25rem 0 0; padding: .45rem .65rem; background: var(--bg); border-radius: var(--radius); }
+
+.questions { margin: .25rem 0 0; padding-left: 1.1rem; }
+.questions li { margin: .2rem 0; }
+
+.notice { border: 1px solid var(--border-strong); border-radius: var(--radius); padding: .7rem .9rem; font-size: .85rem; color: var(--text-dim); }
+.error { color: var(--red-fg); font-size: .88rem; }
+.empty { color: var(--text-dim); padding: 2rem 0; text-align: center; }

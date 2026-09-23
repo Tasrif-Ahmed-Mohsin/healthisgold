@@ -11,16 +11,44 @@
  * quality of a case summary; it must never degrade the detection of an emergency.
  */
 
-import { evaluateSafety, type ClinicalSnapshot, type SafetyVerdict } from '@hc/core';
+import { evaluateSafety, type ClinicalSnapshot, type SafetyVerdict, type SymptomObservation } from '@hc/core';
 import { textOf, type InboundMessage, type MessagePart } from '@hc/channels';
 import type { LlmProvider } from '@hc/llm';
 
 import { buildExtractionPrompt, emptyExtraction, parseExtraction, type Extraction } from './extract.ts';
 
+/**
+ * What the case already knew before this message arrived.
+ *
+ * A case accumulates a clinical picture; a message does not replace it. Someone who reports
+ * fever on Monday and vomiting on Tuesday has both, and a kernel shown only Tuesday would
+ * evaluate a patient who never had a fever. Several rules — fever with neck stiffness,
+ * diarrhoea with sunken eyes — only fire on combinations that arrive across messages.
+ */
+export interface PriorContext {
+  readonly symptoms: readonly SymptomObservation[];
+  readonly utterances: readonly string[];
+  readonly ageMonths?: number | undefined;
+  readonly pregnant?: boolean | undefined;
+}
+
+/** Union by code, keeping the earliest evidence span for each. */
+function mergeSymptoms(
+  prior: readonly SymptomObservation[],
+  fresh: readonly SymptomObservation[],
+): SymptomObservation[] {
+  const byCode = new Map<string, SymptomObservation>();
+  for (const symptom of [...prior, ...fresh]) {
+    if (!byCode.has(symptom.code)) byCode.set(symptom.code, symptom);
+  }
+  return [...byCode.values()];
+}
+
 export interface IntakeOutcome {
   readonly externalId: string;
   readonly snapshot: ClinicalSnapshot;
   readonly verdict: SafetyVerdict;
+  /** What this message alone produced. The snapshot holds the accumulated picture. */
   readonly extraction: Extraction;
   /** Media the patient sent that has not been processed yet — still needs a human to open it. */
   readonly pendingMedia: readonly MessagePart['kind'][];
@@ -31,7 +59,11 @@ export interface IntakeOutcome {
   readonly latencyMs: number;
 }
 
-export async function runIntake(message: InboundMessage, provider: LlmProvider | null): Promise<IntakeOutcome> {
+export async function runIntake(
+  message: InboundMessage,
+  provider: LlmProvider | null,
+  prior: PriorContext = { symptoms: [], utterances: [] },
+): Promise<IntakeOutcome> {
   const startedAt = Date.now();
   const text = textOf(message);
 
@@ -69,15 +101,20 @@ export async function runIntake(message: InboundMessage, provider: LlmProvider |
     }
   }
 
+  // Age and pregnancy already established stay established. A later message that simply
+  // does not mention age must not erase it.
+  const ageMonths = extraction.ageMonths ?? prior.ageMonths;
+  const pregnant = extraction.pregnant ?? prior.pregnant;
+
   const snapshot: ClinicalSnapshot = {
     patient: {
-      ...(extraction.ageMonths === undefined ? {} : { ageMonths: extraction.ageMonths }),
-      ...(extraction.pregnant === undefined ? {} : { pregnant: extraction.pregnant }),
+      ...(ageMonths === undefined ? {} : { ageMonths }),
+      ...(pregnant === undefined ? {} : { pregnant }),
     },
-    symptoms: extraction.symptoms,
-    // The patient's own words go in regardless of what extraction produced. This is the
-    // second, independent detection channel.
-    rawUtterances: text === '' ? [] : [text],
+    symptoms: mergeSymptoms(prior.symptoms, extraction.symptoms),
+    // Every message the patient has sent in this case, not just the latest. The lexicon
+    // reads all of them, so a danger sign mentioned two messages ago still counts.
+    rawUtterances: [...prior.utterances, ...(text === '' ? [] : [text])],
     vitals: {},
   };
 
@@ -111,7 +148,8 @@ export function summariseOutcome(outcome: IntakeOutcome): Record<string, unknown
     firedRules: outcome.verdict.firedRules.map((rule) => rule.id),
     aiSuggested: outcome.verdict.aiSuggestion ?? null,
     escalatedFromAi: outcome.verdict.escalatedFromAi,
-    symptoms: outcome.extraction.symptoms.map((symptom) => symptom.code),
+    symptoms: outcome.snapshot.symptoms.map((symptom) => symptom.code),
+    newSymptoms: outcome.extraction.symptoms.map((symptom) => symptom.code),
     rejectedCodes: outcome.extraction.rejected,
     extractionGaps: outcome.verdict.extractionGaps,
     missing: outcome.extraction.missing,

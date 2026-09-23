@@ -6,7 +6,8 @@
  * can be reasoned about without reference to a web server.
  */
 
-import { realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -14,12 +15,24 @@ import type { InboundMessage } from '@hc/channels';
 import { ChannelError, WhatsAppAdapter, textOf } from '@hc/channels';
 import { isImmediate } from '@hc/core';
 import { DeepSeekProvider } from '@hc/llm';
+import { SqliteCaseStore, type CaseStore } from '@hc/store';
 
 import { describeConfig, loadConfig, type Config } from './config.ts';
 import { SeenMessages } from './dedupe.ts';
-import { runIntake, summariseOutcome } from './intake/pipeline.ts';
+import { runIntake, summariseOutcome, type PriorContext } from './intake/pipeline.ts';
 import { decideReply } from './reply/policy.ts';
+import { caseRoutes } from './routes/cases.ts';
+import { buildPriorContext } from './intake/context.ts';
 import { whatsappRoutes } from './routes/whatsapp.ts';
+
+/**
+ * How long an unclosed case keeps absorbing new messages from the same patient.
+ *
+ * Three days. Long enough that answering a follow-up question the next morning joins the
+ * same thread; short enough that a case nobody closed does not silently swallow an
+ * unrelated illness weeks later.
+ */
+const CASE_CONTINUITY_MS = 72 * 60 * 60 * 1000;
 
 export interface ServerDeps {
   /**
@@ -29,6 +42,8 @@ export interface ServerDeps {
    * be swapped without touching routing.
    */
   readonly onMessage?: (message: InboundMessage) => Promise<void>;
+  /** Injected in tests so they can use an in-memory store. */
+  readonly store?: CaseStore;
 }
 
 export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInstance {
@@ -78,6 +93,11 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
     llm: config.llm === null ? 'not-configured' : config.llm.provider,
   }));
 
+  if (config.storePath !== ':memory:' && deps.store === undefined) {
+    mkdirSync(dirname(config.storePath), { recursive: true });
+  }
+  const store = deps.store ?? new SqliteCaseStore({ path: config.storePath });
+
   const provider =
     config.llm === null
       ? null
@@ -100,50 +120,126 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
   const onMessage =
     deps.onMessage ??
     (async (message: InboundMessage): Promise<void> => {
-      app.log.info(
+      // Durable de-duplication, before anything else touches the case. The in-memory check
+      // in the route forgets everything on restart, and a restart is exactly when Meta is
+      // most likely to retry a delivery it never got a 200 for.
+      if (!(await store.markProcessed(message.externalId))) {
+        app.log.info({ externalId: message.externalId }, 'duplicate message ignored');
+        return;
+      }
+
+      const patient = await store.resolvePatient(message.channel, message.senderRef, message.senderName);
+
+      let current = await store.findActiveCase(patient.id, CASE_CONTINUITY_MS);
+      if (current === null) {
+        current = await store.openCase(patient.id);
+        await store.append(current.id, [
+          { type: 'case.opened', actor: { kind: 'system', component: 'intake' }, data: { channel: message.channel } },
+        ]);
+      }
+      const caseId = current.id;
+
+      // The store is the system of record and holds the patient's words. Logs do not.
+      await store.append(caseId, [
         {
-          channel: message.channel,
-          externalId: message.externalId,
-          parts: message.parts.map((part) => part.kind),
-          textLength: textOf(message).length,
+          type: 'message.received',
+          actor: { kind: 'patient', patientId: patient.id },
+          at: message.receivedAt,
+          data: {
+            externalId: message.externalId,
+            parts: message.parts.map((part) => part.kind),
+            text: textOf(message),
+          },
         },
-        'inbound message received',
-      );
+      ]);
 
-      const outcome = await runIntake(message, provider);
-      app.log.info(summariseOutcome(outcome), 'intake complete');
+      // Everything the case already knows, replayed from its event log. The kernel is then
+      // evaluated against the whole picture rather than the latest message alone.
+      const prior: PriorContext = buildPriorContext(await store.eventsFor(caseId));
+      const outcome = await runIntake(message, provider, prior);
 
-      // Until the case store and coordinator console exist, an emergency has nowhere to go
-      // but the log. Say so loudly rather than letting it look handled.
+      await store.append(caseId, [
+        {
+          type: 'extraction.completed',
+          actor: { kind: 'system', component: 'intake-pipeline' },
+          data: {
+            symptoms: outcome.extraction.symptoms,
+            rejected: outcome.extraction.rejected,
+            missing: outcome.extraction.missing,
+            ageMonths: outcome.extraction.ageMonths ?? null,
+            pregnant: outcome.extraction.pregnant ?? null,
+            durationHours: outcome.extraction.durationHours ?? null,
+            failure: outcome.extractionFailure,
+            latencyMs: outcome.latencyMs,
+          },
+        },
+        {
+          type: 'safety.evaluated',
+          // The kernel version is part of the actor, so a case decided months ago can be
+          // replayed against the exact rules that decided it.
+          actor: { kind: 'system', component: `safety-kernel@${outcome.verdict.kernelVersion}` },
+          data: {
+            level: outcome.verdict.level,
+            disposition: outcome.verdict.disposition,
+            firedRules: outcome.verdict.firedRules.map((rule) => ({ id: rule.id, title: rule.title, detail: rule.evidence.detail })),
+            aiSuggestion: outcome.verdict.aiSuggestion ?? null,
+            escalatedFromAi: outcome.verdict.escalatedFromAi,
+            extractionGaps: outcome.verdict.extractionGaps,
+          },
+        },
+      ]);
+
+      await store.applyVerdict(caseId, {
+        level: outcome.verdict.level,
+        disposition: outcome.verdict.disposition,
+        symptomCodes: outcome.snapshot.symptoms.map((symptom) => symptom.code),
+        missing: outcome.extraction.missing,
+        firedRuleIds: outcome.verdict.firedRules.map((rule) => rule.id),
+        ageMonths: outcome.snapshot.patient.ageMonths,
+      });
+
+      app.log.info({ ...summariseOutcome(outcome), caseId, patientId: patient.id }, 'intake complete');
+
       if (isImmediate(outcome.verdict)) {
         app.log.warn(
-          { externalId: outcome.externalId, level: outcome.verdict.level },
-          'EMERGENCY disposition — no queue exists yet, this case needs a human now',
+          { caseId, level: outcome.verdict.level },
+          'EMERGENCY disposition — this case needs a human now',
         );
       }
 
       const reply = decideReply(outcome.verdict);
       if (!reply.send || whatsapp === null || message.channel !== 'whatsapp') {
-        app.log.info({ externalId: outcome.externalId, reason: reply.reason, sent: false }, 'reply decision');
+        await store.append(caseId, [
+          { type: 'reply.suppressed', actor: { kind: 'system', component: 'reply-policy' }, data: { reason: reply.reason } },
+        ]);
+        app.log.info({ caseId, reason: reply.reason, sent: false }, 'reply decision');
         return;
       }
 
       try {
         const sent = await whatsapp.sendText(message.senderRef, reply.text);
-        app.log.info(
-          { externalId: outcome.externalId, reason: reply.reason, sent: true, replyId: sent.externalId },
-          'reply decision',
-        );
+        await store.append(caseId, [
+          {
+            type: 'reply.sent',
+            actor: { kind: 'system', component: 'reply-policy' },
+            data: { reason: reply.reason, text: reply.text, externalId: sent.externalId },
+          },
+        ]);
+        app.log.info({ caseId, reason: reply.reason, sent: true, replyId: sent.externalId }, 'reply decision');
       } catch (error) {
         // Outside the 24-hour service window a free-form reply is refused by Meta. That is
         // an ordinary state of the world, not a fault — but an emergency that could not be
         // delivered must be loud, because nobody is coming to check the log.
         const outsideWindow = error instanceof ChannelError && error.isOutsideServiceWindow;
+        await store.append(caseId, [
+          {
+            type: 'reply.suppressed',
+            actor: { kind: 'system', component: 'reply-policy' },
+            data: { reason: reply.reason, failed: true, outsideWindow },
+          },
+        ]);
         const level = reply.reason === 'emergency' ? 'error' : 'warn';
-        app.log[level](
-          { externalId: outcome.externalId, reason: reply.reason, outsideWindow, error: String(error) },
-          'reply could not be delivered',
-        );
+        app.log[level]({ caseId, reason: reply.reason, outsideWindow, error: String(error) }, 'reply could not be delivered');
       }
     });
 
@@ -152,6 +248,8 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
     seen: new SeenMessages(),
     onMessage,
   });
+
+  app.register(caseRoutes, { store, consoleToken: config.consoleToken });
 
   return app;
 }

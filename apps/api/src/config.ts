@@ -34,6 +34,15 @@ export interface Config {
   readonly port: number;
   readonly nodeEnv: string;
   readonly isProduction: boolean;
+  /** Where the case store lives. `:memory:` is accepted, and loses everything on restart. */
+  readonly storePath: string;
+  /**
+   * Gates the console read endpoints, which serve patient health data.
+   *
+   * Null leaves them disabled. That is the correct default: an endpoint serving clinical
+   * records must not become reachable merely because someone forgot to configure a secret.
+   */
+  readonly consoleToken: string | null;
   /**
    * Null until credentials are present.
    *
@@ -130,6 +139,8 @@ export function loadConfig(env: Env = process.env): Config {
     port,
     nodeEnv,
     isProduction: nodeEnv === 'production',
+    storePath: read(env, 'STORE_PATH') ?? 'data/healthcare.sqlite',
+    consoleToken: read(env, 'CONSOLE_TOKEN') ?? null,
     whatsapp:
       whatsappGroup.kind !== 'complete'
         ? null
@@ -169,6 +180,8 @@ export function describeConfig(config: Config): string {
       ? 'whatsapp: not configured (simulated channel only)'
       : `whatsapp: configured (graph ${config.whatsapp.graphVersion})`,
     config.llm === null ? 'llm: not configured' : `llm: ${config.llm.provider} (${config.llm.fastModel} / ${config.llm.reasoningModel})`,
+    `store: ${config.storePath}`,
+    config.consoleToken === null ? 'console: disabled (no CONSOLE_TOKEN)' : 'console: enabled',
   ];
   return lines.join('\n  ');
 }

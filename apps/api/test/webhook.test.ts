@@ -22,6 +22,8 @@ function config(overrides: Partial<Config> = {}): Config {
     port: 3000,
     nodeEnv: 'test',
     isProduction: false,
+    storePath: ':memory:',
+    consoleToken: 'test-console-token',
     whatsapp: WHATSAPP,
     llm: null,
     ...overrides,

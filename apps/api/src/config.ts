@@ -12,6 +12,8 @@
  */
 
 export interface WhatsAppSettings {
+  /** Public identifier, not a credential. Needed to check which app a WABA routes to. */
+  readonly appId: string;
   readonly phoneNumberId: string;
   readonly businessAccountId: string;
   readonly accessToken: string;
@@ -82,6 +84,7 @@ function loadGroup(env: Env, keys: readonly string[]): GroupResult {
  * and having done so must not make the server think WhatsApp is half-configured.
  */
 const WHATSAPP_KEYS = [
+  'WHATSAPP_APP_ID',
   'WHATSAPP_PHONE_NUMBER_ID',
   'WHATSAPP_BUSINESS_ACCOUNT_ID',
   'WHATSAPP_ACCESS_TOKEN',
@@ -131,6 +134,7 @@ export function loadConfig(env: Env = process.env): Config {
       whatsappGroup.kind !== 'complete'
         ? null
         : {
+            appId: whatsappGroup.values['WHATSAPP_APP_ID'] ?? '',
             phoneNumberId: whatsappGroup.values['WHATSAPP_PHONE_NUMBER_ID'] ?? '',
             businessAccountId: whatsappGroup.values['WHATSAPP_BUSINESS_ACCOUNT_ID'] ?? '',
             accessToken: whatsappGroup.values['WHATSAPP_ACCESS_TOKEN'] ?? '',

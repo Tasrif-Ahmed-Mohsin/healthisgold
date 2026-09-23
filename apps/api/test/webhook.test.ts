@@ -8,6 +8,7 @@ import { SeenMessages } from '../src/dedupe.ts';
 import { buildServer } from '../src/server.ts';
 
 const WHATSAPP: WhatsAppSettings = {
+  appId: '1640990257618322',
   phoneNumberId: '106540352242922',
   businessAccountId: '102290129340398',
   accessToken: 'token',

@@ -102,6 +102,53 @@ function parsePart(message: Record<string, unknown>): MessagePart {
  * Delivery receipts arrive on the same webhook under `statuses`. They are not inbound
  * messages and are ignored here; tracking them belongs to the outbound side.
  */
+export interface WebhookSummary {
+  /** Which subscribed fields fired, e.g. "messages", "account_update". */
+  readonly fields: readonly string[];
+  readonly messageCount: number;
+  readonly statusCount: number;
+  /** Message `type` values present, e.g. "text", "audio". Never the content. */
+  readonly messageTypes: readonly string[];
+}
+
+/**
+ * Describes a webhook delivery without revealing anything a patient wrote.
+ *
+ * Exists because the common failure — a webhook that verifies and then delivers nothing
+ * useful — is invisible otherwise. Knowing which field fired distinguishes "the messages
+ * subscription is off" from "an unrelated account event arrived", and those have completely
+ * different fixes. Field names and message types are metadata, never content.
+ */
+export function summariseWhatsAppWebhook(payload: unknown): WebhookSummary {
+  const fields: string[] = [];
+  const messageTypes: string[] = [];
+  let messageCount = 0;
+  let statusCount = 0;
+
+  if (!isRecord(payload)) return { fields, messageCount, statusCount, messageTypes };
+
+  for (const entry of arr(payload['entry'])) {
+    if (!isRecord(entry)) continue;
+    for (const change of arr(entry['changes'])) {
+      if (!isRecord(change)) continue;
+      const field = str(change['field']);
+      if (field !== undefined) fields.push(field);
+      const value = isRecord(change['value']) ? change['value'] : undefined;
+      if (value === undefined) continue;
+      const messages = arr(value['messages']);
+      messageCount += messages.length;
+      statusCount += arr(value['statuses']).length;
+      for (const message of messages) {
+        if (!isRecord(message)) continue;
+        const type = str(message['type']);
+        if (type !== undefined) messageTypes.push(type);
+      }
+    }
+  }
+
+  return { fields, messageCount, statusCount, messageTypes };
+}
+
 export function parseWhatsAppWebhook(payload: unknown): InboundMessage[] {
   if (!isRecord(payload)) return [];
 

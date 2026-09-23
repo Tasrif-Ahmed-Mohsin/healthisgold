@@ -11,10 +11,14 @@ import { fileURLToPath } from 'node:url';
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { InboundMessage } from '@hc/channels';
-import { textOf } from '@hc/channels';
+import { ChannelError, WhatsAppAdapter, textOf } from '@hc/channels';
+import { isImmediate } from '@hc/core';
+import { DeepSeekProvider } from '@hc/llm';
 
 import { describeConfig, loadConfig, type Config } from './config.ts';
 import { SeenMessages } from './dedupe.ts';
+import { runIntake, summariseOutcome } from './intake/pipeline.ts';
+import { decideReply } from './reply/policy.ts';
 import { whatsappRoutes } from './routes/whatsapp.ts';
 
 export interface ServerDeps {
@@ -74,11 +78,28 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
     llm: config.llm === null ? 'not-configured' : config.llm.provider,
   }));
 
+  const provider =
+    config.llm === null
+      ? null
+      : new DeepSeekProvider({
+          apiKey: config.llm.apiKey,
+          baseUrl: config.llm.baseUrl,
+          fastModel: config.llm.fastModel,
+          reasoningModel: config.llm.reasoningModel,
+        });
+
+  const whatsapp =
+    config.whatsapp === null
+      ? null
+      : new WhatsAppAdapter({
+          phoneNumberId: config.whatsapp.phoneNumberId,
+          accessToken: config.whatsapp.accessToken,
+          graphVersion: config.whatsapp.graphVersion,
+        });
+
   const onMessage =
     deps.onMessage ??
     (async (message: InboundMessage): Promise<void> => {
-      // Placeholder until the intake pipeline lands. Logs the shape of what arrived and
-      // the length of any text — never the text itself, which is health data.
       app.log.info(
         {
           channel: message.channel,
@@ -88,6 +109,42 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
         },
         'inbound message received',
       );
+
+      const outcome = await runIntake(message, provider);
+      app.log.info(summariseOutcome(outcome), 'intake complete');
+
+      // Until the case store and coordinator console exist, an emergency has nowhere to go
+      // but the log. Say so loudly rather than letting it look handled.
+      if (isImmediate(outcome.verdict)) {
+        app.log.warn(
+          { externalId: outcome.externalId, level: outcome.verdict.level },
+          'EMERGENCY disposition — no queue exists yet, this case needs a human now',
+        );
+      }
+
+      const reply = decideReply(outcome.verdict);
+      if (!reply.send || whatsapp === null || message.channel !== 'whatsapp') {
+        app.log.info({ externalId: outcome.externalId, reason: reply.reason, sent: false }, 'reply decision');
+        return;
+      }
+
+      try {
+        const sent = await whatsapp.sendText(message.senderRef, reply.text);
+        app.log.info(
+          { externalId: outcome.externalId, reason: reply.reason, sent: true, replyId: sent.externalId },
+          'reply decision',
+        );
+      } catch (error) {
+        // Outside the 24-hour service window a free-form reply is refused by Meta. That is
+        // an ordinary state of the world, not a fault — but an emergency that could not be
+        // delivered must be loud, because nobody is coming to check the log.
+        const outsideWindow = error instanceof ChannelError && error.isOutsideServiceWindow;
+        const level = reply.reason === 'emergency' ? 'error' : 'warn';
+        app.log[level](
+          { externalId: outcome.externalId, reason: reply.reason, outsideWindow, error: String(error) },
+          'reply could not be delivered',
+        );
+      }
     });
 
   app.register(whatsappRoutes, {

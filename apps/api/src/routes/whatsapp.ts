@@ -17,7 +17,7 @@
 
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { InboundMessage } from '@hc/channels';
-import { parseWhatsAppWebhook, verifySubscription, verifyWhatsAppSignature } from '@hc/channels';
+import { parseWhatsAppWebhook, summariseWhatsAppWebhook, verifySubscription, verifyWhatsAppSignature } from '@hc/channels';
 
 import type { WhatsAppSettings } from '../config.ts';
 import type { SeenMessages } from '../dedupe.ts';
@@ -87,6 +87,14 @@ export function whatsappRoutes(app: FastifyInstance, options: WhatsAppRouteOptio
 
     const messages = parseWhatsAppWebhook(request.body);
     const fresh = messages.filter((message) => !seen.check(message.externalId));
+
+    // Metadata only — field names and message types, never content. Without this, a
+    // delivery that parses to nothing is indistinguishable from one that never arrived.
+    const summary = summariseWhatsAppWebhook(request.body);
+    request.log.info(
+      { ...summary, parsed: messages.length, accepted: fresh.length },
+      'whatsapp webhook delivery',
+    );
 
     // Acknowledge before doing any work. Everything past this point is best-effort.
     reply.code(200).send({ received: messages.length, accepted: fresh.length });

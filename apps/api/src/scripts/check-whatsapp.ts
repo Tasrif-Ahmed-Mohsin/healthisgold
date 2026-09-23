@@ -111,18 +111,37 @@ async function main(): Promise<void> {
     healthy = false;
   }
 
+  // The failure this catches is the nastiest one in the whole setup. A WABA routes inbound
+  // messages to whichever apps are subscribed *to it*, which is a different thing from the
+  // app's own webhook configuration. Meta's dashboard shows the second and hides the first,
+  // and its "Test" button bypasses the WABA entirely — so the webhook can verify, the Test
+  // button can succeed, and real messages can still go nowhere. Counting subscribed apps is
+  // not enough: a new WABA arrives already subscribed to one of Meta's own internal apps.
   try {
     const subs = await graphGet(settings, `${settings.businessAccountId}/subscribed_apps`, 'whatsapp_business_api_data');
     const data = subs['data'];
-    const count = Array.isArray(data) ? data.length : 0;
-    if (count === 0) {
-      console.log(`${WARN} no app is subscribed to this WABA's webhooks — inbound messages will not arrive.`);
-      console.log('       Fix: WhatsApp → Configuration → Webhook → Manage → subscribe to the "messages" field.');
+    const apps = Array.isArray(data) ? data : [];
+
+    const names: string[] = [];
+    let ours = false;
+    for (const entry of apps) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const info = (entry as { whatsapp_business_api_data?: { id?: string; name?: string } }).whatsapp_business_api_data;
+      if (info?.id === settings.appId) ours = true;
+      if (info?.name !== undefined) names.push(info.name);
+    }
+
+    if (ours) {
+      console.log(`${OK} WABA routes to your app${names.length > 1 ? ` (alongside: ${names.filter((n) => n !== undefined).join(', ')})` : ''}`);
     } else {
-      console.log(`${OK} webhook subscription: ${count} app(s) subscribed`);
+      console.log(`${BAD} your app is NOT subscribed to this WABA, so inbound messages will never arrive.`);
+      console.log(`       Subscribed instead: ${names.length > 0 ? names.join(', ') : 'nothing'}`);
+      console.log(`       Fix: curl -X POST -H "Authorization: Bearer $TOKEN" \\`);
+      console.log(`            https://graph.facebook.com/${settings.graphVersion}/${settings.businessAccountId}/subscribed_apps`);
+      healthy = false;
     }
   } catch (error) {
-    console.log(`${WARN} could not read webhook subscriptions: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(`${WARN} could not read WABA app subscriptions: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   console.log(

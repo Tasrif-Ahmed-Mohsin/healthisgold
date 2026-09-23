@@ -1,0 +1,29 @@
+{
+  "name": "@hc/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP surface: channel webhooks, coordinator API. The only place credentials are read and model calls are made.",
+  "main": "./src/server.ts",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/server.ts",
+    "start": "node --env-file-if-exists=../../.env --import tsx src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:llm": "node --env-file-if-exists=../../.env --import tsx src/scripts/check-llm.ts",
+    "check:whatsapp": "node --env-file-if-exists=../../.env --import tsx src/scripts/check-whatsapp.ts",
+    "tunnel": "npx --yes cloudflared tunnel --url http://localhost:3000"
+  },
+  "dependencies": {
+    "@hc/channels": "*",
+    "@hc/core": "*",
+    "@hc/llm": "*",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

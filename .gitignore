@@ -26,3 +26,8 @@ Thumbs.db
 logs/
 *.log
 npm-debug.log*
+
+# Stray credential files — never commit a key in plaintext.
+keys.txt
+*.key
+secrets*

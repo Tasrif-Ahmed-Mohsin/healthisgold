@@ -42,31 +42,58 @@ as a safety one.
 health-worker console all normalise to the same clinical snapshot. Adding a channel does not
 touch the code that decides whether someone is in danger.
 
+## Who uses it
+
+One web app, four interfaces, chosen by who signs in. It installs on a phone from the browser.
+
+| Role | Signs in with | Can | Cannot |
+| --- | --- | --- | --- |
+| **Patient** | Phone number + a code sent to their WhatsApp | See their own conversations, the doctor's advice, send messages | See triage levels, rules, internal notes, or the clinical assessment |
+| **Coordinator** — nurse, SACMO, CHCP, intern | Username + password | Work the queue, ask the patient questions, add notes, send a case to a doctor | Sign an assessment, reassure, prescribe, or close an urgent case no doctor has signed |
+| **Doctor** — BMDC-registered | Username + password | Everything a coordinator can, plus sign assessments stamped with their BMDC number | — |
+| **Admin** | Username + password | Create, deactivate and reset staff accounts | Open any patient record |
+
+Every rule in that table is enforced by the server, not the interface — see
+[`apps/api/test/roles.test.ts`](apps/api/test/roles.test.ts), which attacks each one over HTTP.
+
 ## Repository layout
 
 ```
-packages/core/        Clinical core. No framework, no I/O, no network.
-  src/domain/         Triage levels, the clinical snapshot, the safety vocabulary.
-  src/safety/         Lexicon, rule set, thresholds, and the kernel itself.
-  test/               The kernel's behavioural contract.
-docs/                 Architecture, safety rationale, and compliance posture.
+packages/core/        Clinical core and the safety kernel. No framework, no I/O.
+packages/llm/         Model access with an untrusted-content boundary.
+packages/channels/    WhatsApp and simulated adapters. Cannot import the clinical core.
+packages/store/       Append-only event log, case/patient projections, accounts, access log.
+apps/api/             HTTP server: webhook, sign-in, role-checked case routes.
+apps/web/             The web app for patients, coordinators, doctors and admins.
+docs/                 Architecture, safety rationale, compliance, WhatsApp setup.
+site/                 Public privacy policy and data-deletion pages.
 ```
-
-`packages/core` is deliberately dependency-free. A clinician can review the rule set and the
-thresholds without running anything.
 
 ## Running it
 
 ```bash
 npm install
-npm test
+cp .env.example .env              # add DEEPSEEK_API_KEY; WhatsApp values are optional
+npm run seed -w @hc/api           # demo staff accounts -> data/demo-accounts.txt
+npm run dev -w @hc/api            # API on :3000
+npm run dev -w @hc/web            # web app on :5173
+```
+
+Open http://localhost:5173. Staff sign in with the accounts in `data/demo-accounts.txt`. A
+patient signs in with the WhatsApp number they have messaged from; in development the login
+code is also written to the API's log.
+
+```bash
+npm test                          # every package
+npm run check:llm -w @hc/api      # live extraction + kernel on a Bangla sample
+npm run check:whatsapp -w @hc/api # verifies each WhatsApp credential separately
 ```
 
 ## Status
 
-The clinical core and its safety kernel are implemented and tested. The API, persistence layer,
-channel adapters and coordinator console are the next phases — see
-[docs/architecture.md](docs/architecture.md) for the intended shape and the order of work.
+Working end to end: WhatsApp or portal message → extraction → safety kernel → automated reply →
+stored case → coordinator works it → doctor signs → patient reads the advice. Not yet built:
+voice notes and photographs, and a clinician's review of the rule set.
 
 This build uses **synthetic data only**. See [docs/compliance.md](docs/compliance.md) for what
 that means and what would have to change before it touched a real patient.

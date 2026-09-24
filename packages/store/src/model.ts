@@ -43,9 +43,19 @@ export interface Case {
   readonly missing: readonly string[];
   /** Ids of the rules that produced the current level, for the audit trail. */
   readonly firedRuleIds: readonly string[];
+  /** The registered doctor a coordinator routed this case to, if any. */
+  readonly assignedDoctorId: string | null;
 }
 
-export type StaffRole = 'coordinator' | 'doctor';
+/**
+ * Staff roles, and the line between them is legal rather than organisational.
+ *
+ * Only a BMDC-registered doctor may diagnose, prescribe, or sign a clinical decision. A
+ * coordinator — nurse, SACMO, CHCP, intern — asks, measures, routes and follows up. An admin
+ * manages accounts and deliberately cannot read cases at all: running the system does not
+ * require seeing anyone's health record, so the role does not get to.
+ */
+export type StaffRole = 'coordinator' | 'doctor' | 'admin';
 
 /**
  * Who caused an event.
@@ -66,6 +76,14 @@ export type DomainEventType =
   | 'safety.evaluated'
   | 'reply.sent'
   | 'reply.suppressed'
+  /** Internal to staff. Never shown to the patient. */
+  | 'note.added'
+  /** A person asked the patient something. */
+  | 'question.sent'
+  /** A coordinator handed the case to a doctor. */
+  | 'case.routed'
+  /** A doctor's clinical decision, stamped with their registration number. */
+  | 'assessment.signed'
   | 'case.closed';
 
 export interface NewEvent {

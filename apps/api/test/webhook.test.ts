@@ -23,7 +23,6 @@ function config(overrides: Partial<Config> = {}): Config {
     nodeEnv: 'test',
     isProduction: false,
     storePath: ':memory:',
-    consoleToken: 'test-console-token',
     whatsapp: WHATSAPP,
     llm: null,
     ...overrides,

@@ -11,6 +11,21 @@
  *   - No value is ever printed. `describeConfig` reports presence, never content.
  */
 
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * The repository root. Relative paths in `.env` are resolved against it, so `STORE_PATH`
+ * means the same file whether a command runs from the root or from `apps/api`. Without
+ * this, the API and the seed script — started from different directories — quietly used
+ * two different databases.
+ */
+const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+
+function resolveStorePath(raw: string): string {
+  return raw === ':memory:' || isAbsolute(raw) ? raw : resolve(REPO_ROOT, raw);
+}
+
 export interface WhatsAppSettings {
   /** Public identifier, not a credential. Needed to check which app a WABA routes to. */
   readonly appId: string;
@@ -36,13 +51,6 @@ export interface Config {
   readonly isProduction: boolean;
   /** Where the case store lives. `:memory:` is accepted, and loses everything on restart. */
   readonly storePath: string;
-  /**
-   * Gates the console read endpoints, which serve patient health data.
-   *
-   * Null leaves them disabled. That is the correct default: an endpoint serving clinical
-   * records must not become reachable merely because someone forgot to configure a secret.
-   */
-  readonly consoleToken: string | null;
   /**
    * Null until credentials are present.
    *
@@ -139,8 +147,7 @@ export function loadConfig(env: Env = process.env): Config {
     port,
     nodeEnv,
     isProduction: nodeEnv === 'production',
-    storePath: read(env, 'STORE_PATH') ?? 'data/healthcare.sqlite',
-    consoleToken: read(env, 'CONSOLE_TOKEN') ?? null,
+    storePath: resolveStorePath(read(env, 'STORE_PATH') ?? 'data/healthcare.sqlite'),
     whatsapp:
       whatsappGroup.kind !== 'complete'
         ? null
@@ -181,7 +188,7 @@ export function describeConfig(config: Config): string {
       : `whatsapp: configured (graph ${config.whatsapp.graphVersion})`,
     config.llm === null ? 'llm: not configured' : `llm: ${config.llm.provider} (${config.llm.fastModel} / ${config.llm.reasoningModel})`,
     `store: ${config.storePath}`,
-    config.consoleToken === null ? 'console: disabled (no CONSOLE_TOKEN)' : 'console: enabled',
+    config.isProduction ? 'patient login codes: WhatsApp only' : 'patient login codes: WhatsApp, and written to this log (development only)',
   ];
   return lines.join('\n  ');
 }

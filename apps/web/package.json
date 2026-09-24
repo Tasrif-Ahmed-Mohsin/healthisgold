@@ -1,9 +1,9 @@
 {
-  "name": "@hc/console",
+  "name": "@hc/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Coordinator console: the queue a health worker actually works.",
+  "description": "Web app for coordinators, doctors and patients. Installable on a phone.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

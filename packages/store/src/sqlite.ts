@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS processed_messages (
 const LEVEL_RANK: Record<string, number> = { GREEN: 0, YELLOW: 1, RED: 2, BLACK: 3 };
 
 interface CaseRow {
+  assigned_doctor_id: string | null;
   id: string;
   patient_id: string;
   status: string;
@@ -125,6 +126,7 @@ function toCase(row: CaseRow): Case {
     symptomCodes: parseList(row.symptom_codes),
     missing: parseList(row.missing),
     firedRuleIds: parseList(row.fired_rule_ids),
+    assignedDoctorId: row.assigned_doctor_id ?? null,
   };
 }
 
@@ -150,7 +152,24 @@ export class SqliteCaseStore implements CaseStore {
   constructor(options: SqliteCaseStoreOptions) {
     this.#db = new DatabaseSync(options.path);
     this.#db.exec(SCHEMA);
+    this.#migrate();
     this.#now = options.now ?? (() => new Date());
+  }
+
+  /**
+   * Additive migrations for databases created by an earlier version.
+   *
+   * SQLite has no ADD COLUMN IF NOT EXISTS, so each column is checked against the live
+   * schema first. Existing rows — including every case already in a pilot's database —
+   * keep their data; nothing here drops or rewrites anything.
+   */
+  #migrate(): void {
+    const columns = new Set(
+      (this.#db.prepare('PRAGMA table_info(cases)').all() as unknown as { name: string }[]).map((c) => c.name),
+    );
+    if (!columns.has('assigned_doctor_id')) {
+      this.#db.exec('ALTER TABLE cases ADD COLUMN assigned_doctor_id TEXT');
+    }
   }
 
   #timestamp(): string {
@@ -269,6 +288,32 @@ export class SqliteCaseStore implements CaseStore {
     return updated;
   }
 
+  async findPatientByChannelRef(channel: string, ref: string): Promise<Patient | null> {
+    const row = this.#db
+      .prepare(
+        `SELECT p.* FROM patients p
+         JOIN patient_channels c ON c.patient_id = p.id
+         WHERE c.channel = ? AND c.ref = ?`,
+      )
+      .get(channel, ref) as PatientRow | undefined;
+    return row === undefined ? null : toPatient(row);
+  }
+
+  async channelsForPatient(patientId: string): Promise<{ channel: string; ref: string }[]> {
+    return this.#db
+      .prepare('SELECT channel, ref FROM patient_channels WHERE patient_id = ?')
+      .all(patientId) as unknown as { channel: string; ref: string }[];
+  }
+
+  async assignDoctor(caseId: string, doctorId: string | null): Promise<Case> {
+    this.#db
+      .prepare('UPDATE cases SET assigned_doctor_id = ?, updated_at = ? WHERE id = ?')
+      .run(doctorId, this.#timestamp(), caseId);
+    const updated = await this.getCase(caseId);
+    if (updated === null) throw new Error(`case ${caseId} not found`);
+    return updated;
+  }
+
   async markProcessed(externalId: string): Promise<boolean> {
     const existing = this.#db.prepare('SELECT external_id FROM processed_messages WHERE external_id = ?').get(externalId);
     if (existing !== undefined) return false;
@@ -276,10 +321,12 @@ export class SqliteCaseStore implements CaseStore {
     return true;
   }
 
-  async queue(limit = 50): Promise<Case[]> {
+  async queue(limit = 50, statuses?: readonly CaseStatus[]): Promise<Case[]> {
+    const filter = statuses !== undefined && statuses.length > 0 ? statuses : (['open', 'awaiting_patient', 'with_doctor'] as const);
+    const placeholders = filter.map(() => '?').join(', ');
     const rows = this.#db
-      .prepare(`SELECT * FROM cases WHERE status != 'closed' ORDER BY updated_at ASC LIMIT ?`)
-      .all(limit * 4) as unknown as CaseRow[];
+      .prepare(`SELECT * FROM cases WHERE status IN (${placeholders}) ORDER BY updated_at ASC LIMIT ?`)
+      .all(...filter, limit * 4) as unknown as CaseRow[];
 
     // Ordering in SQL would need a CASE expression over level; doing it here keeps the
     // severity ranking in one place, next to the type that defines it.

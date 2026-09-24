@@ -1,5 +1,7 @@
 import 'fastify';
 
+import type { Principal } from './auth/session.ts';
+
 declare module 'fastify' {
   interface FastifyRequest {
     /**
@@ -10,5 +12,8 @@ declare module 'fastify' {
      * to see the original bytes or it will fail in a way that looks like a bad credential.
      */
     rawBody?: Buffer;
+
+    /** Who is making this request, resolved from the session cookie. Null when signed out. */
+    principal: Principal | null;
   }
 }

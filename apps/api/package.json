@@ -12,13 +12,15 @@
     "typecheck": "tsc --noEmit",
     "check:llm": "node --env-file-if-exists=../../.env --import tsx src/scripts/check-llm.ts",
     "check:whatsapp": "node --env-file-if-exists=../../.env --import tsx src/scripts/check-whatsapp.ts",
-    "tunnel": "npx --yes cloudflared tunnel --url http://localhost:3000"
+    "tunnel": "npx --yes cloudflared tunnel --url http://localhost:3000",
+    "seed": "node --env-file-if-exists=../../.env --import tsx src/scripts/seed.ts"
   },
   "dependencies": {
     "@hc/channels": "*",
     "@hc/core": "*",
     "@hc/llm": "*",
-    "fastify": "^5.2.0"
+    "fastify": "^5.2.0",
+    "@hc/store": "*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

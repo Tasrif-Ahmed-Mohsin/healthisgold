@@ -46,8 +46,16 @@ export interface CaseStore {
    */
   markProcessed(externalId: string): Promise<boolean>;
 
-  /** The coordinator queue: most urgent first, then oldest first within a level. */
-  queue(limit?: number): Promise<Case[]>;
+  /** The queue: most urgent first, then oldest first within a level. Defaults to every non-closed status. */
+  queue(limit?: number, statuses?: readonly Case['status'][]): Promise<Case[]>;
+
+  /** Looks a patient up without creating one — for login, where an unknown number must stay unknown. */
+  findPatientByChannelRef(channel: string, ref: string): Promise<Patient | null>;
+
+  /** Every way this patient can be reached, so a reply goes back through the channel they use. */
+  channelsForPatient(patientId: string): Promise<{ channel: string; ref: string }[]>;
+
+  assignDoctor(caseId: string, doctorId: string | null): Promise<Case>;
 
   getCase(caseId: string): Promise<Case | null>;
   getPatient(patientId: string): Promise<Patient | null>;

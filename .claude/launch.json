@@ -2,9 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "console",
+      "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "@hc/console"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@hc/web"
+      ],
       "port": 5173
     }
   ]
